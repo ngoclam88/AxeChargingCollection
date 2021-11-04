@@ -1,6 +1,9 @@
 import os, csv, ipaddress, logging, time, datetime, sched
+import concurrent.futures
 from logging.handlers import RotatingFileHandler
 from ftplib import FTP
+import threading
+lock = threading.Lock()
 
 def grabFile(ftp, filename):
     localfile = open(filename, 'wb')
@@ -32,8 +35,27 @@ def axe_logger(nodename):
     stream_handler.setFormatter(debug_formatter)
     debug_logger.addHandler(debug_handler)
     debug_logger.addHandler(stream_handler)
-    return {'debug_logger':debug_logger}
+    return debug_logger
 
+def doGetChargingFile(ne_dict, list_logger):
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        index = 0
+        for ne_name in ne_dict:
+            executor.submit(getChargingFile, ne_list=ne_dict[ne_name], logger=list_logger[index])
+            index += 1 
+
+def getChargingFile(ne_list, logger):
+    with lock:
+        logger.debug(f"Connecting to {ne_list[0]}")
+    ftp_ip = ne_list[0]
+    ftp_usr = ne_list[1]
+    ftp_pwd = ne_list[2]
+    ftp_client = FTP(ftp_ip)
+    ftp_client.login(user=ftp_usr, passwd=ftp_pwd)
+    ftp_client.cwd('/cp/files/ISTFILES/ISTFILES')
+    # print(ftp_client.retrlines('LIST'))
+    ftp_client.mlsd(path='/cp/files/ISTFILES/ISTFILES')
+    
 def main():
     ne_dict = {}
     error_or_not = True
@@ -62,10 +84,11 @@ def main():
                 
     if not error_or_not:
         list_logger = []
-        for ne in ne_dict:
-            logger = axe_logger(ne)
+        for ne_name in ne_dict:
+            logger = axe_logger(ne_name)
             list_logger.append(logger)
         print("Chương trình định kỳ 60 phút lấy file cước")
+        doGetChargingFile(ne_dict, list_logger)
 
 if __name__ == "__main__":
     greeting = 'Chương trình tự động lấy file cước tổng đài AXE. Copyright: lamlnn@vnpt.vn. All rights reserved.'
