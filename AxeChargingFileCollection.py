@@ -1,4 +1,4 @@
-import os, csv, ipaddress, logging, time, datetime, sched, telnetlib
+import os, ipaddress, logging, time, datetime, sched, telnetlib
 import concurrent.futures
 from logging.handlers import RotatingFileHandler
 from ftplib import FTP
@@ -58,40 +58,6 @@ def getChargingFile(ne_list, logger):
     # print(ftp_client.retrlines('LIST'))
     ftp_client.mlsd(path='/cp/files/ISTFILES/ISTFILES')
     
-def main():
-    ne_dict = {}
-    error_or_not = True
-    try:
-        with open('config.csv', mode='r') as csv_file:
-                csv_reader = csv.DictReader(csv_file)
-                for row in csv_reader:
-                    ne_dict[row["NE name"]] = [row["NE IP"].strip(), row["Username"].strip(), row["Password"].strip()]
-        error_or_not = False
-    except FileNotFoundError:
-        print("Chương trình không tìm thấy file cấu hình (config.csv). Vui lòng kiểm tra lại.")
-    except KeyError:
-        print("File cấu hình (config.csv) không đúng định dạng mặc định. Vui lòng kiểm tra lại.")
-
-    if not error_or_not:
-        for ne in ne_dict:
-            if ne.strip()=='':
-                print("Tên node mạng để trống. Vui lòng kiểm tra lại file cấu hình (config.csv)")
-                error_or_not = True
-            elif not validate_ip_address(ne_dict[ne][0]):
-                print(f"Vui lòng kiểm tra lại địa chỉ IP của node mạng {ne}")
-                error_or_not = True
-            elif ne_dict[ne][1]=='' or ne_dict[ne][2]=='':
-                print("User name hoặc password node mạng {ne} bỏ trống. Vui lòng kiểm tra lại file cấu hình (config.csv)")
-                error_or_not = True
-                
-    if not error_or_not:
-        list_logger = []
-        for ne_name in ne_dict:
-            logger = axe_logger(ne_name)
-            list_logger.append(logger)
-        print("Chương trình định kỳ 60 phút lấy file cước")
-        doGetChargingFile(ne_dict, list_logger)
-
 def getFileList(cmd_output):
     start = False
     lstFile = []
@@ -107,24 +73,59 @@ def getFileList(cmd_output):
     return lstFile
         
 def telnet_n_getFileList():
-    HOST = os.environ.get("HOST_IP")
-    user = os.environ.get("username")
-    password = os.environ.get("password")
+    HOST = os.environ.get("DiaChiIP")
+    user = os.environ.get("tendangnhap")
+    password = os.environ.get("matkhau")
+    destname = os.environ.get("dest")
+    vol1 = os.environ.get("vol1")
+    cmd_infmt = "infmt:dest=" + destname + ",vol1=" + vol1 + ";"
+    if validate_ip_address(HOST):
+        if destname.strip() != '' and vol1.strip() != '':
+            try:
+                tn = telnetlib.Telnet(HOST, port=5000)
+                tn.read_until(b"USERCODE:",5)
+                tn.write(user.encode('ascii') + b"\r\n")
+                tn.read_until(b"PASSWORD:",5)
+                tn.write(password.encode('ascii') + b"\r\n")
+                login_result = tn.read_some().decode('ascii')
+                if login_result.count("AUTHORIZATION FAILURE"):
+                    print("Sai ten dang nhap hoac mat khau. Vui long kiem tra lai")
+                    tn.close()
+                    input()
+                else:
+                    tn.read_until(b"<")
+                    # Lay danh sach file cuoc can lay
+                    tn.write(b"infsp:file=ttfile00,dest=charging;" + b"\r\n")
+                    cmd_infsp_out = tn.read_until(b"<").decode('ascii')
 
-    tn = telnetlib.Telnet(HOST, port=5000)
-    tn.read_until(b"USERCODE:",5)
-    tn.write(user.encode('ascii') + b"\r\n")
-    tn.read_until(b"PASSWORD:",5)
-    tn.write(password.encode('ascii') + b"\r\n")
-    tn.read_until(b"<")
-    tn.write(b"infsp:file=ttfile00,dest=charging;" + b"\r\n")
-    cmd_output = tn.read_until(b"<").decode('ascii')
-    return getFileList(cmd_output)
+                    # Chay lenh chuyen file cuoc tu dest sang vol1:
+                    print(cmd_infmt)
+                    # tn.write(cmd_infmt.encode('ascii') + b"\r\n")
+                    # tn.read_until(b"<")
+
+                    # Dong ket noi telnet
+                    tn.close()
+                    return getFileList(cmd_infsp_out)
+
+            except TimeoutError:
+                print(f"Khong the ket noi den duoc node mang {HOST}")
+                return []
+        else:
+            print('Thong so dest hoac vol1 khong duoc de trong. Vui long kiem tra lai')
+            input()
+    else:
+        print("Dia chi IP khong dung dinh dang. Vui long kiem tra lai")
+        input()
     
 
 if __name__ == "__main__":
     greeting = 'Chương trình tự động lấy file cước tổng đài AXE. Copyright: lamlnn@vnpt.vn. All rights reserved.'
     print("-"*100 + "\n" + greeting + "\n" + "-"*100)
     # main()
-    infsp = os.environ.get("sample")
-    getFileList(infsp)
+    # telnet_n_getFileList = os.environ.get("sample")
+    # lstFile = getFileList(os.environ.get("sample"))
+    lstFile = telnet_n_getFileList()
+
+    # Neu lstFile khong phai la rong thi thuc hien tiep
+    if not len(lstFile):
+        pass
