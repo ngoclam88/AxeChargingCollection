@@ -1,9 +1,11 @@
-import os, csv, ipaddress, logging, time, datetime, sched
+import os, csv, ipaddress, logging, time, datetime, sched, telnetlib
 import concurrent.futures
 from logging.handlers import RotatingFileHandler
 from ftplib import FTP
 import threading
 lock = threading.Lock()
+from dotenv import load_dotenv
+load_dotenv()
 
 def grabFile(ftp, filename):
     localfile = open(filename, 'wb')
@@ -90,7 +92,39 @@ def main():
         print("Chương trình định kỳ 60 phút lấy file cước")
         doGetChargingFile(ne_dict, list_logger)
 
+def getFileList(cmd_output):
+    start = False
+    lstFile = []
+    for line in cmd_output.splitlines():
+        if line.count("END"):
+            start = False
+        elif start and line.strip() !="":
+            # chi lay dung dong co cot DUMPED = NO
+            if line.split()[3] == 'NO':
+                lstFile.append(line.split()[0])
+        elif line.count("SEQNUM"):
+            start = True
+    return lstFile
+        
+def telnet_n_getFileList():
+    HOST = os.environ.get("HOST_IP")
+    user = os.environ.get("username")
+    password = os.environ.get("password")
+
+    tn = telnetlib.Telnet(HOST, port=5000)
+    tn.read_until(b"USERCODE:",5)
+    tn.write(user.encode('ascii') + b"\r\n")
+    tn.read_until(b"PASSWORD:",5)
+    tn.write(password.encode('ascii') + b"\r\n")
+    tn.read_until(b"<")
+    tn.write(b"infsp:file=ttfile00,dest=charging;" + b"\r\n")
+    cmd_output = tn.read_until(b"<").decode('ascii')
+    return getFileList(cmd_output)
+    
+
 if __name__ == "__main__":
     greeting = 'Chương trình tự động lấy file cước tổng đài AXE. Copyright: lamlnn@vnpt.vn. All rights reserved.'
     print("-"*100 + "\n" + greeting + "\n" + "-"*100)
-    main()
+    # main()
+    infsp = os.environ.get("sample")
+    getFileList(infsp)
